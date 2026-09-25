@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Document Converter</title>
+  <defs>
+    <!-- Back page: purple/magenta -->
+    <linearGradient id="back" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E25AC9"/>
+      <stop offset="1" stop-color="#8E2DA8"/>
+    </linearGradient>
+    <!-- Front page: Word-style white/ice -->
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E4EEFD"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B9CFA"/>
+      <stop offset="1" stop-color="#1450B4"/>
+    </linearGradient>
+    <linearGradient id="imgbg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F6DDF3"/>
+    </linearGradient>
+    <clipPath id="imgclip">
+      <rect x="54" y="92" width="50" height="44" rx="7"/>
+    </clipPath>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4.5" flood-color="#0A2A6B" flood-opacity="0.30"/>
+    </filter>
+    <filter id="shadowSm" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3.5" flood-color="#0A2A6B" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <!-- Artwork authored around 44..212 x 52..215; scaled to fill the canvas -->
+  <g transform="translate(128 128) scale(1.25) translate(-128 -133.5)">
+
+    <!-- Back page (source format) -->
+    <g filter="url(#shadow)">
+      <path d="M56,52 H118 L144,78 V172 a12,12 0 0 1 -12,12 H56 a12,12 0 0 1 -12,-12 V64 a12,12 0 0 1 12,-12 Z" fill="url(#back)"/>
+    </g>
+    <path d="M118,52 V72 a6,6 0 0 0 6,6 H144 Z" fill="#5E1B75" fill-opacity="0.55"/>
+
+    <!-- Image glyph: sun + mountains -->
+    <rect x="54" y="92" width="50" height="44" rx="7" fill="url(#imgbg)"/>
+    <g clip-path="url(#imgclip)">
+      <circle cx="90" cy="106" r="6" fill="#FFB92E"/>
+      <path d="M48,138 L70,108 L92,138 Z" fill="#EBA3DE"/>
+      <path d="M66,138 L86,114 L110,140 Z" fill="#8E2DA8"/>
+    </g>
+
+    <!-- Front page (target format) -->
+    <g filter="url(#shadow)">
+      <path d="M124,72 H184 L212,100 V192 a12,12 0 0 1 -12,12 H124 a12,12 0 0 1 -12,-12 V84 a12,12 0 0 1 12,-12 Z" fill="url(#front)" stroke="#8FB2E6" stroke-width="1.5" stroke-linejoin="round"/>
+    </g>
+    <path d="M184,72 V94 a6,6 0 0 0 6,6 H212 Z" fill="#B8CEF3"/>
+    <rect x="127" y="108" width="52" height="8" rx="4" fill="#2B7CD3"/>
+    <rect x="127" y="124" width="68" height="8" rx="4" fill="#9DBDEB"/>
+    <rect x="127" y="140" width="44" height="8" rx="4" fill="#9DBDEB"/>
+
+    <!-- Conversion badge -->
+    <g filter="url(#shadowSm)">
+      <circle cx="128" cy="184" r="31" fill="url(#badge)" stroke="#FFFFFF" stroke-width="3"/>
+    </g>
+    <g fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M113,184 H143 M131,172 L143,184 L131,196"/>
+    </g>
+  </g>
+</svg>

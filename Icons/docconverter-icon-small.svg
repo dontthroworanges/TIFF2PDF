@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Document Converter (small sizes)</title>
+  <defs>
+    <linearGradient id="back" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E25AC9"/>
+      <stop offset="1" stop-color="#8E2DA8"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B9CFA"/>
+      <stop offset="1" stop-color="#1450B4"/>
+    </linearGradient>
+    <clipPath id="imgclip">
+      <rect x="50" y="88" width="52" height="46" rx="8"/>
+    </clipPath>
+  </defs>
+  <!-- Simplified for 16-32px: bolder shapes, no fine text lines, no tile.
+       Artwork authored around 38..222 x 44..232; scaled to fill the canvas. -->
+  <g transform="translate(128 128) scale(1.25) translate(-130 -138)">
+    <path d="M52,44 H120 L150,74 V176 a14,14 0 0 1 -14,14 H52 a14,14 0 0 1 -14,-14 V58 a14,14 0 0 1 14,-14 Z" fill="url(#back)"/>
+    <path d="M120,44 V66 a8,8 0 0 0 8,8 H150 Z" fill="#5E1B75" fill-opacity="0.55"/>
+
+    <!-- Image glyph -->
+    <rect x="50" y="88" width="52" height="46" rx="8" fill="#FFFFFF"/>
+    <g clip-path="url(#imgclip)">
+      <circle cx="88" cy="102" r="7" fill="#FFB92E"/>
+      <path d="M44,136 L68,104 L94,136 Z" fill="#EBA3DE"/>
+      <path d="M64,136 L86,112 L108,138 Z" fill="#8E2DA8"/>
+    </g>
+
+    <path d="M126,68 H190 L222,100 V198 a14,14 0 0 1 -14,14 H126 a14,14 0 0 1 -14,-14 V82 a14,14 0 0 1 14,-14 Z" fill="#FFFFFF" stroke="#7FA6E0" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M190,68 V92 a8,8 0 0 0 8,8 H222 Z" fill="#B8CEF3"/>
+    <rect x="128" y="112" width="60" height="14" rx="7" fill="#2B7CD3"/>
+    <circle cx="128" cy="190" r="42" fill="url(#badge)" stroke="#FFFFFF" stroke-width="5"/>
+    <g fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M106,190 H150 M136,174 L150,190 L136,206"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,127 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="TiffToPdf.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:TiffToPdf"
+    Title="TIFF2PDF">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom title bar (caption buttons follow the light/dark theme) -->
+        <Grid x:Name="AppTitleBar" Height="48">
+            <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0,0,0" VerticalAlignment="Center">
+                <Image Source="Assets/TitleBarIcon.png" Width="16" Height="16" />
+                <TextBlock Text="TIFF2PDF" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <Grid x:Name="ContentGrid" Grid.Row="1" Padding="24,4,24,24" RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Folder to process -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Folder or file to process" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="InputBox" PlaceholderText="Folder containing .tif / .tiff files (subfolders are included), or a single file" />
+                    <Button x:Name="BrowseInputButton" Grid.Column="1" Content="Browse…" Click="BrowseInput_Click"
+                            ToolTipService.ToolTip="Choose a TIFF file, or a folder to process with all its subfolders" />
+                </Grid>
+                <TextBlock x:Name="SummaryText" Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+
+            <!-- Actions and progress -->
+            <Grid Grid.Row="1" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="AboutButton" Click="About_Click" ToolTipService.ToolTip="About this app">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE946;" FontSize="14" />
+                        <TextBlock Text="About" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="PrefsButton" Grid.Column="1" Click="Preferences_Click" ToolTipService.ToolTip="Preferences">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE713;" FontSize="14" />
+                        <TextBlock Text="Preferences" />
+                    </StackPanel>
+                </Button>
+                <!-- Start, and Cancel while a conversion is running -->
+                <Button x:Name="StartButton" Grid.Column="2" Style="{StaticResource AccentButtonStyle}" Click="StartCancel_Click" MinWidth="110">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon x:Name="StartIcon" Glyph="&#xE768;" FontSize="14" />
+                        <TextBlock x:Name="StartText" Text="Start" />
+                    </StackPanel>
+                </Button>
+                <StackPanel Grid.Column="3" Margin="16,0" VerticalAlignment="Center" Spacing="4">
+                    <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextBlockStyle}" Text="Ready"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                    <ProgressBar x:Name="Progress" Visibility="Collapsed" />
+                </StackPanel>
+                <Button x:Name="OutputToggleButton" Grid.Column="4" Click="ToggleOutput_Click" MinWidth="130"
+                        ToolTipService.ToolTip="Show or hide the output">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon x:Name="OutputToggleIcon" Glyph="&#xE70E;" FontSize="14" />
+                        <TextBlock x:Name="OutputToggleText" Text="Hide output" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <!-- Output -->
+            <Grid x:Name="OutputPanel" Grid.Row="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Padding="16,8,8,8">
+                    <TextBlock Text="Output" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    <Button HorizontalAlignment="Right" Style="{StaticResource SubtleButtonStyle}" Click="CopyOutput_Click"
+                            ToolTipService.ToolTip="Copy all output to the clipboard">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                            <TextBlock Text="Copy" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <ListView x:Name="LogList" Grid.Row="1" SelectionMode="None" Padding="0,0,0,8">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="Padding" Value="16,1" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:LogLine">
+                            <TextBlock Text="{x:Bind Text}" Foreground="{x:Bind Foreground}" FontFamily="Cascadia Mono, Consolas"
+                                       FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

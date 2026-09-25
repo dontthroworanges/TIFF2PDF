@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <!-- Keep build output out of the OneDrive/SharePoint folder (hundreds of files that would otherwise sync). -->
+    <BaseIntermediateOutputPath>$(LOCALAPPDATA)\TiffToPdfBuild\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(LOCALAPPDATA)\TiffToPdfBuild\bin\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
+</Project>

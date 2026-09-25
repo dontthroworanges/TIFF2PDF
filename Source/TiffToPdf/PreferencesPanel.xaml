@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="TiffToPdf.PreferencesPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel Spacing="20">
+        <InfoBar x:Name="ErrorBar" Severity="Error" IsClosable="False" />
+
+        <StackPanel Spacing="6">
+            <TextBlock Text="Tools folder" Style="{StaticResource BodyStrongTextBlockStyle}" />
+            <TextBlock Text="ImageMagick and Tesseract OCR. They are downloaded here if missing."
+                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextWrapping="Wrap" />
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="ToolsBox" />
+                <Button Grid.Column="1" Content="Browse…" Click="BrowseTools_Click" />
+            </Grid>
+        </StackPanel>
+
+        <ToggleSwitch x:Name="LogToggle" Header="CSV log"
+                      OnContent="Write a log file to the processed folder" OffContent="Don't write a log file" />
+
+        <ToggleSwitch x:Name="OutputToggle" Header="Output section"
+                      OnContent="Show when the app starts" OffContent="Hide when the app starts" />
+
+        <StackPanel Spacing="6">
+            <ComboBox x:Name="QualityBox" Header="Image quality (grayscale and color scans)" MinWidth="320" />
+            <TextBlock Text="Higher quality keeps fine lines and small text sharper but makes larger PDFs. Black-and-white scans are always compressed losslessly and aren't affected."
+                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <ComboBox x:Name="ThreadsBox" Header="CPU threads" MinWidth="180" />
+            <TextBlock Text="Total CPU threads used. Files are converted in parallel, and spare threads work on the pages of each file. More threads finish faster but use more memory; lower this if the PC becomes unresponsive."
+                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

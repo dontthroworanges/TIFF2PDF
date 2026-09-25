@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>TiffToPdf</RootNamespace>
+    <!-- The exe name. Don't rename the built exe: WinUI finds its embedded resources by this name. -->
+    <AssemblyName>TIFF2PDF</AssemblyName>
+    <Product>TIFF2PDF</Product>
+    <!-- Shown in About. Update both for each release. -->
+    <Version>1.0</Version>
+    <ReleaseDate>2026-09-25</ReleaseDate>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- WinUI 3, unpackaged, with .NET and the Windows App SDK bundled: nothing to install. -->
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <!-- Needed for single-file publishing (embeds resources.pri); the app stays unpackaged. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\TitleBarIcon.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\AboutIcon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="ReleaseDate" Value="$(ReleaseDate)" />
+  </ItemGroup>
+
+</Project>

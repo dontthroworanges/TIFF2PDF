@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="TiffToPdf.AboutPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel Spacing="16">
+        <StackPanel Orientation="Horizontal" Spacing="16">
+            <Image Source="Assets/AboutIcon.png" Width="64" Height="64" />
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock x:Name="NameText" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock x:Name="VersionText" Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsTextSelectionEnabled="True" />
+                <TextBlock x:Name="ReleaseText" Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock TextWrapping="Wrap"
+                   Text="Converts scanned TIFF images into searchable PDFs. Each page is checked for orientation and run through OCR, so the text in the PDF can be searched and copied. Convert a single file or a whole folder, including subfolders." />
+
+        <Button Click="GitHub_Click" ToolTipService.ToolTip="Open the project page in your browser">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon Glyph="&#xE8A7;" FontSize="14" />
+                <TextBlock Text="View on GitHub" />
+            </StackPanel>
+        </Button>
+    </StackPanel>
+</UserControl>
