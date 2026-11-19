@@ -39,9 +39,9 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBox x:Name="InputBox" PlaceholderText="Folder containing .tif / .tiff files (subfolders are included), or a single file" />
+                    <TextBox x:Name="InputBox" PlaceholderText="Folder containing .tif / .tiff / .pdf files (subfolders are included), or a single file" />
                     <Button x:Name="BrowseInputButton" Grid.Column="1" Content="Browse…" Click="BrowseInput_Click"
-                            ToolTipService.ToolTip="Choose a TIFF file, or a folder to process with all its subfolders" />
+                            ToolTipService.ToolTip="Choose a TIFF or PDF file, or a folder to process with all its subfolders" />
                 </Grid>
                 <TextBlock x:Name="SummaryText" Style="{StaticResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="NoWrap"

@@ -1,13 +1,23 @@
 <#
 .SYNOPSIS
-    Recursively converts .tif/.tiff files to individual searchable (OCR'd) PDFs using portable tools.
+    Recursively converts .tif/.tiff files to individual searchable (OCR'd) PDFs, and makes existing
+    scanned PDFs searchable, using portable tools.
 
 .DESCRIPTION
-    Uses two portable tools kept in a tools folder (nothing is installed):
+    Uses portable tools kept in a tools folder (nothing is installed):
       - ImageMagick (portable build)  - prepares each page at the right resolution/compression
       - Tesseract OCR (UB-Mannheim)   - builds the PDF with an invisible, searchable text layer
-    If either tool is missing from the tools folder (and not on PATH), the script offers to download
-    it from the official GitHub releases. 7-Zip (portable) is also downloaded to unpack them.
+      - Poppler (oschwartz10612 build) and qpdf - only for PDF files (see below)
+    If a tool is missing from the tools folder (and not on PATH), the script offers to download it
+    from the official GitHub releases. 7-Zip (portable) is also downloaded to unpack them. Poppler and
+    qpdf are only looked for (and offered for download) when there are PDF files to process.
+
+    PDF files are only OCR'd: their pages are not re-encoded, rotated or changed in any way. Each page
+    without text is rendered at -PdfOcrDpi (default 300) and OCR'd, and the invisible text is laid over
+    the original page. Pages that already have text are left alone, and a PDF whose pages all have text
+    is skipped. The result is written next to the source as "<name>_OCR.pdf"; the source is not changed.
+    When a folder is processed, PDFs made by this script (from a TIFF in the same folder, or an
+    "_OCR.pdf" copy of a PDF there) are not picked up again.
 
     Compression is chosen per file, tuned for scanned technical drawings (line work + text):
       - Bilevel (black/white) scans  -> CCITT Group 4 (lossless, very small). Never downsampled.
@@ -31,7 +41,8 @@
     more than one file runs at a time, each file's output is shown when that file finishes.
 
     Each PDF is written next to its source TIFF with the same base name. Existing PDFs are skipped
-    unless -Overwrite is used. A CSV log is written to the input folder unless -NoLog is used.
+    unless -Overwrite is used (this applies to the "_OCR.pdf" copies of PDFs too). A CSV log is written
+    to the input folder unless -NoLog is used.
 
     "TIFF2PDF.exe" (source in the Source folder) is a Windows app that runs this script;
     it must be kept in the same folder as this script.
@@ -47,10 +58,14 @@
 .EXAMPLE
     .\Convert-TiffToSearchablePdf.ps1 -InputPath "D:\Scans\Drawings\Sheet 12.tif" -ToolsPath "C:\Tools\TiffToPdf"
     Converts a single file.
+
+.EXAMPLE
+    .\Convert-TiffToSearchablePdf.ps1 -InputPath "D:\Scans\Survey.pdf" -ToolsPath "C:\Tools\TiffToPdf"
+    Adds a searchable text layer to a scanned PDF, saved as "D:\Scans\Survey_OCR.pdf".
 #>
 [CmdletBinding()]
 param(
-    # Folder to search (recursively), or a single .tif/.tiff file.
+    # Folder to search (recursively), or a single .tif/.tiff/.pdf file.
     [string]$InputPath,
 
     # Folder holding (or to receive) the portable tools. Prompted for if not supplied.
@@ -76,6 +91,10 @@ param(
     # 11 = sparse text (best for drawings), 3 = automatic (best for text documents), 12 = sparse + OSD
     [ValidateSet(1, 3, 4, 6, 11, 12)]
     [int]$PageSegMode = 11,
+
+    # Resolution PDF pages are rendered at for OCR (the PDF itself is not changed).
+    [ValidateRange(150, 600)]
+    [int]$PdfOcrDpi = 300,
 
     # Skip the automatic orientation check (faster, but sideways/upside-down pages stay as scanned).
     [switch]$NoAutoRotate,
@@ -271,8 +290,22 @@ function Get-SevenZip {
     return $sevenZip
 }
 
+function Expand-ToolArchive {
+    # Unpacks a downloaded archive and copies the folder holding $ExeName (with its DLLs) into the tools
+    # folder as $Name, so the exe sits directly in it (Find-ToolExe only looks 2 levels deep).
+    param([string]$SevenZip, [string]$Archive, [string]$Name, [string]$ExeName, [string]$DownloadDir)
+    $unpack = Join-Path $DownloadDir "unpack-$Name"
+    $r = Invoke-Tool $SevenZip @('x', $Archive, "-o$unpack", '-y')
+    if ($r.ExitCode -ne 0) { throw "Could not unpack ${Name}: $($r.Output)" }
+    $exe = Get-ChildItem -LiteralPath $unpack -Filter $ExeName -Recurse -File | Select-Object -First 1
+    if (-not $exe) { throw "$ExeName not found in the $Name download." }
+    $dest = Join-Path $ToolsPath $Name
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    Get-ChildItem -LiteralPath $exe.DirectoryName | Copy-Item -Destination $dest -Recurse -Force
+}
+
 function Install-PortableTools {
-    param([bool]$NeedMagick, [bool]$NeedTesseract)
+    param([bool]$NeedMagick, [bool]$NeedTesseract, [bool]$NeedPoppler, [bool]$NeedQpdf)
 
     New-Item -ItemType Directory -Force -Path $ToolsPath | Out-Null
     $downloadDir = Join-Path $ToolsPath '_downloads'
@@ -304,10 +337,41 @@ function Install-PortableTools {
             Remove-Item -LiteralPath (Join-Path $tessDir '$PLUGINSDIR') -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath (Join-Path $tessDir 'tesseract-uninstall.exe') -Force -ErrorAction SilentlyContinue
         }
+
+        if ($NeedPoppler) {
+            Write-Host '  Poppler (portable, renders PDF pages for OCR)' -ForegroundColor Cyan
+            $archive = Get-GitHubReleaseAsset 'oschwartz10612/poppler-windows' '^Release-[\d\.\-]+\.zip$' $downloadDir
+            Expand-ToolArchive $sevenZip $archive 'Poppler' 'pdftoppm.exe' $downloadDir
+        }
+
+        if ($NeedQpdf) {
+            Write-Host '  qpdf (portable, adds the text layer to PDFs)' -ForegroundColor Cyan
+            $archive = Get-GitHubReleaseAsset 'qpdf/qpdf' '^qpdf-[\d\.]+-msvc64\.zip$' $downloadDir
+            Expand-ToolArchive $sevenZip $archive 'qpdf' 'qpdf.exe' $downloadDir
+        }
     }
     finally {
         Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Find-PdfTools {
+    # Sets $PdfToPpm/$PdfToText/$PdfInfo (Poppler) and $Qpdf in the script scope; returns the names of
+    # the missing tools.
+    $script:PdfToPpm = Find-ToolExe 'pdftoppm.exe'
+    $script:Qpdf     = Find-ToolExe 'qpdf.exe'
+    $script:PdfToText = $script:PdfInfo = $null
+    if ($script:PdfToPpm) {
+        $dir = Split-Path $script:PdfToPpm
+        foreach ($pair in @(@('PdfToText', 'pdftotext.exe'), @('PdfInfo', 'pdfinfo.exe'))) {
+            $exe = Join-Path $dir $pair[1]
+            if (Test-Path -LiteralPath $exe) { Set-Variable -Scope Script -Name $pair[0] -Value $exe }
+        }
+    }
+    $missing = @()
+    if (-not ($script:PdfToPpm -and $script:PdfToText -and $script:PdfInfo)) { $missing += 'Poppler' }
+    if (-not $script:Qpdf) { $missing += 'qpdf' }
+    return , $missing
 }
 
 function Install-TesseractLanguage {
@@ -570,6 +634,132 @@ function Convert-TiffFile {
     [pscustomobject]$result
 }
 
+function Format-PageRanges {
+    # 1,2,3,5,7,8 -> "1-3,5,7-8" (qpdf's page-range syntax; also used in messages).
+    param([int[]]$Pages)
+    $parts = New-Object System.Collections.Generic.List[string]
+    $i = 0
+    while ($i -lt $Pages.Count) {
+        $j = $i
+        while ($j + 1 -lt $Pages.Count -and $Pages[$j + 1] -eq $Pages[$j] + 1) { $j++ }
+        $parts.Add($(if ($j -eq $i) { "$($Pages[$i])" } else { "$($Pages[$i])-$($Pages[$j])" }))
+        $i = $j + 1
+    }
+    $parts -join ','
+}
+
+function Convert-PdfFile {
+    # Makes a PDF searchable without changing its pages: each page that has no text is rendered and
+    # OCR'd to a text-only PDF page, and those pages are laid over the originals with qpdf. Returns the
+    # log record. Runs in this script or a worker runspace, like Convert-TiffFile.
+    param($Job)
+    $ErrorActionPreference = 'Stop'
+    $result = New-ResultRecord $Job
+    $result.Type = 'PDF'
+    $threads = $Job.Threads
+
+    $workDir = $Job.WorkDir
+    New-Item -ItemType Directory -Path $workDir | Out-Null
+    $tmpSrc = Join-Path $workDir 'src.pdf'
+
+    try {
+        Set-Step $Job 'Reading file'
+        Copy-Item -LiteralPath $Job.Source -Destination $tmpSrc -Force
+
+        # ---- Step 1: find the pages that have no text ----
+        Write-Host '    Checking for existing text...'
+        Set-Step $Job 'Checking for existing text'
+        $r = Invoke-FileTool $PdfInfo @($tmpSrc) $threads
+        if ($r.ExitCode -ne 0) { throw "Could not read the PDF (it may be damaged or password protected): $($r.Output)" }
+        $pageCount = if ($r.StdOut -match '(?m)^Pages:\s+(\d+)') { [int]$Matches[1] } else { 0 }
+        if ($pageCount -eq 0) { throw 'The PDF has no pages.' }
+        $result.Pages = $pageCount
+
+        # pdftotext ends each page's text with a form feed.
+        $r = Invoke-FileTool $PdfToText @('-enc', 'UTF-8', $tmpSrc, '-') $threads
+        if ($r.ExitCode -ne 0) { throw "Could not read the PDF's text: $($r.Output)" }
+        $pageTexts = "$($r.StdOut)" -split "`f"
+        $toOcr = [int[]]@(for ($p = 1; $p -le $pageCount; $p++) {
+            if ($p -gt $pageTexts.Count -or $pageTexts[$p - 1] -notmatch '[\p{L}\p{N}]') { $p }
+        })
+
+        if ($toOcr.Count -eq 0) {
+            $result.Status = 'Skipped'
+            $result.Message = 'PDF already has searchable text on every page'
+            Write-Host '    Skipped - the PDF already has searchable text on every page.' -ForegroundColor DarkGray
+        } else {
+            $result.Compression = 'Unchanged (text layer added)'
+            if ($toOcr.Count -lt $pageCount) {
+                $result.Message = "OCR'd page(s) $(Format-PageRanges $toOcr); the others already had text"
+                Write-Host "    $($pageCount - $toOcr.Count) of $pageCount page(s) already have text and are left as they are."
+            }
+
+            # ---- Step 2: render and OCR each page (pages in parallel) ----
+            Write-Host "    Running OCR on $($toOcr.Count) page(s)..."
+            Set-Step $Job 'Running OCR'
+            $tasks = New-Object System.Collections.Generic.List[object]
+            $ocrPdfs = New-Object System.Collections.Generic.List[string]
+            foreach ($p in $toOcr) {
+                $image   = Join-Path $workDir ('page-{0:D5}' -f $p)   # pdftoppm adds .png
+                $ocrBase = Join-Path $workDir ('ocr-{0:D5}' -f $p)
+                $ocrPdfs.Add("$ocrBase.pdf")
+                # Render what the viewer shows (crop box, page rotation applied); the text-only page then
+                # matches the displayed page, and qpdf undoes the page's rotation when overlaying it.
+                $render = New-ToolStep $PdfToPpm @('-f', "$p", '-l', "$p", '-singlefile', '-cropbox',
+                                                   '-r', "$PdfOcrDpi", '-gray', '-png', $tmpSrc, $image)
+                $ocr = New-ToolStep $Tesseract (@("$image.png", $ocrBase) + $tessDataArgs +
+                       @('-l', $Language, '--psm', "$PageSegMode", '--dpi', "$PdfOcrDpi", '-c', 'textonly_pdf=1', 'pdf'))
+                $tasks.Add(@($render, $ocr))
+            }
+            $onProgress = $null
+            if ($toOcr.Count -gt 1) {
+                $onProgress = { param($finished, $total) Set-Step $Job "Running OCR ($finished of $total pages done)" }
+            }
+            $failed = Invoke-ToolBatch $tasks.ToArray() $threads $onProgress | Where-Object { $_.ExitCode -ne 0 } | Select-Object -First 1
+            if ($failed) { throw "OCR failed: $($failed.Output)" }
+            Remove-Item -Path (Join-Path $workDir 'page-*.png') -Force -ErrorAction SilentlyContinue
+
+            # ---- Step 3: lay the text over the original pages ----
+            Write-Host '    Adding the text layer...'
+            Set-Step $Job 'Adding the text layer'
+            $textPdf = Join-Path $workDir 'text.pdf'
+            $outPdf  = Join-Path $workDir 'out.pdf'
+            # Arguments go in a file (qpdf's @file) - one per OCR'd page could overflow the command line.
+            $argFile = Join-Path $workDir 'merge-args.txt'
+            [IO.File]::WriteAllLines($argFile, [string[]](@('--empty', '--pages') + $ocrPdfs + @('--', $textPdf)), $utf8NoBom)
+            $r = Invoke-FileTool $Qpdf @("@$argFile") $threads
+            # qpdf exit code 3 = finished with warnings (the output is still written).
+            if ($r.ExitCode -notin 0, 3 -or -not (Test-Path -LiteralPath $textPdf)) { throw "qpdf could not combine the OCR pages: $($r.Output)" }
+
+            $r = Invoke-FileTool $Qpdf @($tmpSrc, '--overlay', $textPdf, "--to=$(Format-PageRanges $toOcr)",
+                                        "--from=1-$($toOcr.Count)", '--', $outPdf) $threads
+            if ($r.ExitCode -notin 0, 3 -or -not (Test-Path -LiteralPath $outPdf)) { throw "qpdf could not add the text layer: $($r.Output)" }
+            if ($r.ExitCode -eq 3) {
+                $result.Message = (@($result.Message, "qpdf warnings: $($r.Output)") | Where-Object { $_ }) -join '; '
+            }
+
+            Move-Item -LiteralPath $outPdf -Destination $Job.Output -Force
+            $result.Status = 'Success'
+            $result.OutputMB = [math]::Round((Get-Item -LiteralPath $Job.Output).Length / 1MB, 2)
+            Write-Host '    Done.' -ForegroundColor Green
+        }
+    }
+    catch {
+        $result.Status = 'Failed'
+        $result.Message = $_.Exception.Message
+        Write-Host "    FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    finally {
+        Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    [pscustomobject]$result
+}
+
+function Convert-File {
+    param($Job)
+    if ($Job.Kind -eq 'Pdf') { Convert-PdfFile $Job } else { Convert-TiffFile $Job }
+}
+
 function Write-HostRecord {
     # Replays a Write-Host message captured from a worker runspace, keeping its colour.
     param($Record)
@@ -646,8 +836,11 @@ if ($missingLangs.Count -gt 0) {
 
 #region Main
 
+$TiffExtensions = '.tif', '.tiff'
+$PdfOcrSuffix   = '_OCR'   # "X.pdf" is made searchable as "X_OCR.pdf" (TIFF2PDF.exe uses the same name)
+
 if (-not $InputPath) {
-    $InputPath = Read-FolderPath -Prompt "`nEnter the folder path to search for TIFF files" -MustExist
+    $InputPath = Read-FolderPath -Prompt "`nEnter the folder path to search for TIFF and PDF files" -MustExist
 } elseif (-not (Test-Path -LiteralPath $InputPath)) {
     throw "Folder or file not found: $InputPath"
 } else {
@@ -656,23 +849,42 @@ if (-not $InputPath) {
 
 if (Test-Path -LiteralPath $InputPath -PathType Leaf) {
     # A single file.
-    $tiffs = @(Get-Item -LiteralPath $InputPath)
-    if ($tiffs[0].Extension -notin '.tif', '.tiff') { throw "Not a TIFF file: $InputPath" }
-    $logDir = $tiffs[0].DirectoryName
+    $files = @(Get-Item -LiteralPath $InputPath)
+    if ($files[0].Extension -notin ($TiffExtensions + '.pdf')) { throw "Not a TIFF or PDF file: $InputPath" }
+    $logDir = $files[0].DirectoryName
     Write-Host "`nProcessing single file '$InputPath'" -ForegroundColor Cyan
 } else {
     $logDir = $InputPath
-    Write-Host "`nSearching '$InputPath' for TIFF files..." -ForegroundColor Cyan
-    $tiffs = @(Get-ChildItem -LiteralPath $InputPath -Recurse -File -ErrorAction SilentlyContinue |
-               Where-Object { $_.Extension -in '.tif', '.tiff' } |
+    Write-Host "`nSearching '$InputPath' for TIFF and PDF files..." -ForegroundColor Cyan
+    $files = @(Get-ChildItem -LiteralPath $InputPath -Recurse -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Extension -in ($TiffExtensions + '.pdf') } |
                Sort-Object FullName)
+
+    # Leave out PDFs this script made: "X.pdf" (or "X_tif.pdf"/"X_tiff.pdf") next to a TIFF named X,
+    # and "X_OCR.pdf" next to X.pdf.
+    $present = @{}
+    foreach ($f in $files) { $present[$f.FullName.ToLower()] = $true }
+    $files = @($files | Where-Object {
+        if ($_.Extension -ne '.pdf') { return $true }
+        $base = Join-Path $_.DirectoryName $_.BaseName
+        foreach ($ext in $TiffExtensions) {
+            if ($present.ContainsKey("$base$ext".ToLower())) { return $false }
+            $suffix = '_' + $ext.TrimStart('.')
+            if ($base.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase) -and
+                $present.ContainsKey(($base.Substring(0, $base.Length - $suffix.Length) + $ext).ToLower())) { return $false }
+        }
+        if ($base.EndsWith($PdfOcrSuffix, [StringComparison]::OrdinalIgnoreCase) -and
+            $present.ContainsKey(($base.Substring(0, $base.Length - $PdfOcrSuffix.Length) + '.pdf').ToLower())) { return $false }
+        return $true
+    })
 }
 
-if ($tiffs.Count -eq 0) {
-    Write-Host 'No .tif or .tiff files found.' -ForegroundColor Yellow
+if ($files.Count -eq 0) {
+    Write-Host 'No TIFF or PDF files found.' -ForegroundColor Yellow
     exit 0
 }
-Write-Host "Found $($tiffs.Count) TIFF file(s).`n"
+$pdfCount = @($files | Where-Object { $_.Extension -eq '.pdf' }).Count
+Write-Host "Found $($files.Count - $pdfCount) TIFF file(s) and $pdfCount PDF file(s).`n"
 
 $workRoot = Join-Path ([IO.Path]::GetTempPath()) ("tiff2pdf_" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $workRoot | Out-Null
@@ -684,30 +896,68 @@ $utf8NoBom     = New-Object System.Text.UTF8Encoding($false)
 $i = 0
 
 # Decide each file's output name up front (so parallel workers can't collide) and skip existing PDFs.
-foreach ($tiff in $tiffs) {
+foreach ($file in $files) {
     $i++
-    $baseOut = Join-Path $tiff.DirectoryName ($tiff.BaseName + '.pdf')
-
-    # Avoid collisions when both "X.tif" and "X.tiff" exist in the same folder.
-    if ($claimedOutput.ContainsKey($baseOut.ToLower())) {
-        $baseOut = Join-Path $tiff.DirectoryName ("{0}_{1}.pdf" -f $tiff.BaseName, $tiff.Extension.TrimStart('.'))
+    $isPdf = $file.Extension -eq '.pdf'
+    if ($isPdf) {
+        $baseOut = Join-Path $file.DirectoryName ($file.BaseName + $PdfOcrSuffix + '.pdf')
+    } else {
+        $baseOut = Join-Path $file.DirectoryName ($file.BaseName + '.pdf')
+        # Avoid collisions when both "X.tif" and "X.tiff" exist in the same folder.
+        if ($claimedOutput.ContainsKey($baseOut.ToLower())) {
+            $baseOut = Join-Path $file.DirectoryName ("{0}_{1}.pdf" -f $file.BaseName, $file.Extension.TrimStart('.'))
+        }
     }
     $claimedOutput[$baseOut.ToLower()] = $true
 
     $job = [pscustomobject]@{
-        Source = $tiff.FullName; Extension = $tiff.Extension; Length = $tiff.Length
+        Source = $file.FullName; Extension = $file.Extension; Length = $file.Length; Kind = $(if ($isPdf) { 'Pdf' } else { 'Tiff' })
         Output = $baseOut; WorkDir = (Join-Path $workRoot $i); Threads = 1
     }
 
     if ((Test-Path -LiteralPath $baseOut) -and -not $Overwrite) {
+        $what = if ($isPdf) { 'Searchable copy' } else { 'PDF' }
         $result = New-ResultRecord $job
         $result.Status = 'Skipped'
-        $result.Message = 'PDF already exists (use -Overwrite to replace)'
-        Write-Host "Skipped - PDF already exists: $($tiff.FullName)" -ForegroundColor DarkGray
+        $result.Message = "$what already exists (use -Overwrite to replace)"
+        Write-Host "Skipped - $what already exists: $($file.FullName)" -ForegroundColor DarkGray
         $results.Add([pscustomobject]$result)
         continue
     }
     $jobs.Add($job)
+}
+
+# PDFs need Poppler and qpdf as well; they're only looked for (and offered for download) now.
+$PdfToPpm = $PdfToText = $PdfInfo = $Qpdf = $null
+$pdfJobs = @($jobs | Where-Object { $_.Kind -eq 'Pdf' })
+if ($pdfJobs.Count -gt 0) {
+    $missing = Find-PdfTools
+    if ($missing.Count -gt 0) {
+        Write-Host "Missing tool(s) for PDF files: $($missing -join ', ')" -ForegroundColor Yellow
+        Write-Host "They can be downloaded (portable, no install or admin rights needed) to:`n    $ToolsPath"
+        $download = [bool]$DownloadMissingTools
+        if (-not $download) {
+            try { $download = Read-YesNo 'Download them now?' } catch { $download = $false }   # no console (-NonInteractive)
+        }
+        if ($download) {
+            Install-PortableTools -NeedPoppler ($missing -contains 'Poppler') -NeedQpdf ($missing -contains 'qpdf')
+            $missing = Find-PdfTools
+            if ($missing.Count -eq 0) { Write-Host "Tools ready.`n" -ForegroundColor Green }
+        }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Host "Warning: PDF files are skipped - $($missing -join ' and ') not available." -ForegroundColor Yellow
+        foreach ($job in $pdfJobs) {
+            $result = New-ResultRecord $job
+            $result.Status = 'Skipped'
+            $result.Message = "Tools for PDF files not available: $($missing -join ', ')"
+            $results.Add([pscustomobject]$result)
+            [void]$jobs.Remove($job)
+        }
+    } else {
+        Write-Host "Poppler:     $(Split-Path $PdfToPpm)"
+        Write-Host "qpdf:        $Qpdf"
+    }
 }
 
 # One file per thread at a time. With fewer files than threads, the spare threads are shared out
@@ -733,14 +983,15 @@ try {
         foreach ($job in $jobs) {
             $n++
             Write-Host ("[{0}/{1}] {2}" -f $n, $jobs.Count, $job.Source)
-            $results.Add((Convert-TiffFile $job))
+            $results.Add((Convert-File $job))
         }
     } else {
         # Worker runspaces get copies of the helper functions and the settings they use.
         $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
         if ($ReportStatus) { $StatusQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]' }
         foreach ($fn in 'Invoke-Tool', 'New-ToolStep', 'Join-ToolArgs', 'Start-ToolProcess', 'Invoke-ToolBatch', 'Invoke-FileTool',
-                        'Get-OcrScore', 'Get-PageRotations', 'Get-TiffInfo', 'New-ResultRecord', 'Set-Step', 'Convert-TiffFile') {
+                        'Get-OcrScore', 'Get-PageRotations', 'Get-TiffInfo', 'New-ResultRecord', 'Set-Step', 'Convert-TiffFile',
+                        'Format-PageRanges', 'Convert-PdfFile', 'Convert-File') {
             $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry $fn, (Get-Item "function:$fn").Definition))
         }
         $sharedVars = @{
@@ -748,6 +999,7 @@ try {
             PageSegMode = $PageSegMode; AssumedDpi = $AssumedDpi; MaxDpi = $MaxDpi; JpegQuality = $JpegQuality
             LosslessColor = [bool]$LosslessColor; NoAutoRotate = [bool]$NoAutoRotate
             RotationProbeDpi = $RotationProbeDpi; utf8NoBom = $utf8NoBom; StatusQueue = $StatusQueue
+            PdfToPpm = $PdfToPpm; PdfToText = $PdfToText; PdfInfo = $PdfInfo; Qpdf = $Qpdf; PdfOcrDpi = $PdfOcrDpi
         }
         foreach ($name in $sharedVars.Keys) {
             $iss.Variables.Add((New-Object System.Management.Automation.Runspaces.SessionStateVariableEntry $name, $sharedVars[$name], $null))
@@ -760,7 +1012,7 @@ try {
         foreach ($job in $jobs) {
             $ps = [powershell]::Create()
             $ps.RunspacePool = $pool
-            [void]$ps.AddCommand('Convert-TiffFile').AddParameter('Job', $job)
+            [void]$ps.AddCommand('Convert-File').AddParameter('Job', $job)
             $running.Add([pscustomobject]@{ PS = $ps; Handle = $ps.BeginInvoke(); Job = $job })
         }
 

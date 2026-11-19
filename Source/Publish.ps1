@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Produces one self-contained exe (.NET and the Windows App SDK are bundled, so users don't need to
-    install anything). Requires the .NET 8 SDK or later to build. Build output goes to
+    install anything). Requires the .NET 10 SDK or later to build. Build output goes to
     %LOCALAPPDATA%\TiffToPdfBuild so it isn't synced by OneDrive.
 #>
 $ErrorActionPreference = 'Stop'

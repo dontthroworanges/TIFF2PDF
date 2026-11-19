@@ -1,0 +1,206 @@
+# CI: every push to main and every pull request lints the PowerShell script and builds TIFF2PDF.exe.
+# CD: pushing a version tag (e.g. "v1.2.0", or "v1.3.0-beta.1" for a pre-release) also publishes a
+#     GitHub Release with a ready-to-run zip: TIFF2PDF.exe + Convert-TiffToSearchablePdf.ps1 + Tools + LICENSE.
+#     The version and release date shown in About come from the tag and the tagged commit's date,
+#     so <Version>/<ReleaseDate> in TiffToPdf.csproj don't need editing before a release.
+#
+#   git tag v1.2.0
+#   git push origin v1.2.0
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  lint:
+    name: Lint PowerShell
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Only the scripts are needed - skip the Tools folder and the committed exe.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*.ps1
+            /Source/*.ps1
+
+      # The app runs the script in Windows PowerShell 5.1, so check it parses there.
+      - name: Check syntax (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem -Path . -Filter *.ps1 -Recurse -File) {
+              $errors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors)
+              foreach ($e in $errors) {
+                  $rel = Resolve-Path -LiteralPath $file.FullName -Relative
+                  Write-Host "::error file=$($rel.TrimStart('.\') -replace '\\','/'),line=$($e.Extent.StartLineNumber),col=$($e.Extent.StartColumnNumber)::$($e.Message)"
+                  $failed = $true
+              }
+          }
+          if ($failed) { exit 1 }
+          Write-Host 'All scripts parse.'
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $results = @(Invoke-ScriptAnalyzer -Path . -Recurse)
+          function Format-Annotation([string]$s) { $s -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A' }
+          foreach ($r in $results) {
+              $level = if ($r.Severity -eq 'Error') { 'error' } else { 'warning' }
+              $file = [IO.Path]::GetRelativePath($env:GITHUB_WORKSPACE, $r.ScriptPath) -replace '\\','/'
+              Write-Host "::$level file=$file,line=$($r.Line),col=$($r.Column),title=$($r.RuleName)::$(Format-Annotation $r.Message)"
+          }
+          $results | Group-Object Severity | ForEach-Object { Write-Host "$($_.Name): $($_.Count)" }
+          # Warnings are shown as annotations; only Error-severity findings fail the build.
+          if ($results | Where-Object Severity -eq 'Error') { exit 1 }
+
+  build:
+    name: Build TIFF2PDF.exe
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /Source/
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Source/**/*.csproj', 'Source/**/*.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          $props = @()
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+              $version = $env:GITHUB_REF_NAME -replace '^v', ''
+              if ($version -notmatch '^\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?$') {
+                  Write-Host "::error::Tag '$env:GITHUB_REF_NAME' is not a version tag like v1.2.0 or v1.3.0-beta.1"
+                  exit 1
+              }
+              $releaseDate = git log -1 --format=%cs
+              $props = "-p:Version=$version", "-p:ReleaseDate=$releaseDate"
+          } else {
+              # Not a release: keep the csproj version (the commit hash is added to the product version).
+              $version = ([xml](Get-Content Source/TiffToPdf/TiffToPdf.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          }
+          $prerelease = if ($version.Contains('-')) { 'true' } else { 'false' }
+          "version=$version"                          >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease"                    >> $env:GITHUB_OUTPUT
+          "MSBUILD_VERSION_PROPS=$($props -join ' ')" >> $env:GITHUB_ENV
+          Write-Host "Version: $version"
+
+      # Same publish settings as Source/Publish.ps1: one self-contained exe, nothing to install.
+      - name: Publish
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'publish'
+          $extra = @($env:MSBUILD_VERSION_PROPS -split ' ' | Where-Object { $_ })
+          dotnet publish Source/TiffToPdf/TiffToPdf.csproj -c Release -r win-x64 -o $out `
+              -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true `
+              -p:ContinuousIntegrationBuild=true @extra
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed (exit code $LASTEXITCODE)" }
+          $exe = Get-Item (Join-Path $out 'TIFF2PDF.exe')
+          Write-Host "Built $($exe.Name): $([math]::Round($exe.Length / 1MB, 1)) MB, file version $($exe.VersionInfo.FileVersion)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TIFF2PDF-exe
+          path: ${{ runner.temp }}/publish/TIFF2PDF.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [lint, build]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /Convert-TiffToSearchablePdf.ps1
+            /LICENSE
+            /Tools/
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: TIFF2PDF-exe
+          path: ${{ runner.temp }}/exe
+
+      - name: Package
+        id: package
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # Zip layout: TIFF2PDF/ { TIFF2PDF.exe, Convert-TiffToSearchablePdf.ps1, LICENSE, Tools/ }
+          # The personal settings file is left out; the app uses defaults (Tools folder next to the exe).
+          $stage = Join-Path $env:RUNNER_TEMP 'stage\TIFF2PDF'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'exe\TIFF2PDF.exe') $stage
+          Copy-Item Convert-TiffToSearchablePdf.ps1, LICENSE $stage
+          Copy-Item Tools $stage -Recurse
+          Remove-Item (Join-Path $stage 'Tools\_downloads') -Recurse -Force -ErrorAction SilentlyContinue
+
+          $zip = Join-Path $env:RUNNER_TEMP "TIFF2PDF-$env:VERSION-win-x64.zip"
+          Push-Location (Split-Path $stage)
+          7z a -tzip -mx=7 $zip TIFF2PDF | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z failed (exit code $LASTEXITCODE)" }
+          Pop-Location
+
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $zip -Leaf)" | Set-Content "$zip.sha256" -NoNewline
+          Write-Host "$(Split-Path $zip -Leaf): $([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB, sha256 $hash"
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Create release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP: ${{ steps.package.outputs.zip }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $ghArgs = @($env:GITHUB_REF_NAME, $env:ZIP, "$env:ZIP.sha256",
+                      '--repo', $env:GITHUB_REPOSITORY, '--title', "TIFF2PDF $env:VERSION",
+                      '--generate-notes', '--verify-tag')
+          if ($env:PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
+          gh release create @ghArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit code $LASTEXITCODE)" }

@@ -17,7 +17,7 @@
         </StackPanel>
 
         <TextBlock TextWrapping="Wrap"
-                   Text="Converts scanned TIFF images into searchable PDFs. Each page is checked for orientation and run through OCR, so the text in the PDF can be searched and copied. Convert a single file or a whole folder, including subfolders." />
+                   Text="Converts scanned TIFF images into searchable PDFs. Each page is checked for orientation and run through OCR, so the text in the PDF can be searched and copied. Scanned PDFs can be made searchable too: they are only OCR'd, with the pages left as they are, and saved as a copy ending in _OCR. Convert a single file or a whole folder, including subfolders." />
 
         <Button Click="GitHub_Click" ToolTipService.ToolTip="Open the project page in your browser">
             <StackPanel Orientation="Horizontal" Spacing="8">

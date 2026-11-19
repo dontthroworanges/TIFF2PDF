@@ -181,9 +181,10 @@ public sealed partial class MainWindow : Window
 
     private void BrowseInput_Click(object sender, RoutedEventArgs e)
     {
-        var path = ShellDialog.PickFileOrFolder(_hwnd, "Select a TIFF file, or a folder to process with all its subfolders",
+        var path = ShellDialog.PickFileOrFolder(_hwnd, "Select a TIFF or PDF file, or a folder to process with all its subfolders",
                                                 InputStartFolder(), "Select this folder",
-                                                ("TIFF images", "*.tif;*.tiff"), ("All files", "*.*"));
+                                                ("TIFF images and PDF files", "*.tif;*.tiff;*.pdf"), ("TIFF images", "*.tif;*.tiff"),
+                                                ("PDF files", "*.pdf"), ("All files", "*.*"));
         if (path != null) InputBox.Text = path;
     }
 
@@ -199,21 +200,59 @@ public sealed partial class MainWindow : Window
         UpdateSummary();
     }
 
-    /// <summary>Same lookup as the script: the tools folder (2 levels deep), then PATH.</summary>
-    private static bool ToolsPresent(string toolsDir)
+    /// <summary>
+    /// The tools that are needed but missing, with the same lookup as the script: the tools folder
+    /// (2 levels deep), then PATH. Poppler and qpdf are only needed for PDF files.
+    /// </summary>
+    private static List<string> MissingTools(string toolsDir, bool needPdfTools)
     {
         var options = new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true };
         var pathDirs = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var exe in new[] { "magick.exe", "tesseract.exe" })
+        var tools = new List<(string Name, string Exe)> { ("ImageMagick", "magick.exe"), ("Tesseract OCR", "tesseract.exe") };
+        if (needPdfTools) tools.AddRange([("Poppler", "pdftoppm.exe"), ("qpdf", "qpdf.exe")]);
+
+        var missing = new List<string>();
+        foreach (var (name, exe) in tools)
         {
             var found = Directory.Exists(toolsDir) && Directory.EnumerateFiles(toolsDir, exe, options).Any();
             found = found || pathDirs.Any(d =>
             {
                 try { return File.Exists(Path.Combine(d.Trim('"'), exe)); } catch { return false; }
             });
-            if (!found) return false;
+            if (!found) missing.Add(name);
         }
-        return true;
+        return missing;
+    }
+
+    private static bool IsTiff(string path) =>
+        path.EndsWith(".tif", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".tiff", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPdf(string path) => path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Where the script saves the searchable copy of a PDF ("X.pdf" -> "X_OCR.pdf").</summary>
+    private static string PdfOcrOutput(string pdf) =>
+        Path.Combine(Path.GetDirectoryName(pdf) ?? "", Path.GetFileNameWithoutExtension(pdf) + "_OCR.pdf");
+
+    /// <summary>
+    /// Whether the folder has PDFs the script would OCR - not ones it made itself (next to a TIFF of the
+    /// same name, or an "_OCR" copy).
+    /// </summary>
+    private static bool FolderHasPdfsToOcr(string folder)
+    {
+        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+        try
+        {
+            return Directory.EnumerateFiles(folder, "*.pdf", options).Any(pdf =>
+            {
+                var stem = Path.Combine(Path.GetDirectoryName(pdf) ?? "", Path.GetFileNameWithoutExtension(pdf));
+                return !File.Exists(stem + ".tif") && !File.Exists(stem + ".tiff") &&
+                       !stem.EndsWith("_OCR", StringComparison.OrdinalIgnoreCase);
+            });
+        }
+        catch
+        {
+            return true;   // can't tell - check for the tools anyway
+        }
     }
 
     #endregion
@@ -235,13 +274,12 @@ public sealed partial class MainWindow : Window
         var isFile = input.Length > 0 && File.Exists(input);
         if (input.Length == 0 || !(isFile || Directory.Exists(input)))
         {
-            await ShowMessageAsync("Choose a folder or file", "Please choose an existing folder or TIFF file to process.");
+            await ShowMessageAsync("Choose a folder or file", "Please choose an existing folder, or a TIFF or PDF file to process.");
             return;
         }
-        if (isFile && !(input.EndsWith(".tif", StringComparison.OrdinalIgnoreCase) ||
-                        input.EndsWith(".tiff", StringComparison.OrdinalIgnoreCase)))
+        if (isFile && !(IsTiff(input) || IsPdf(input)))
         {
-            await ShowMessageAsync("Not a TIFF file", "Please choose a .tif or .tiff file.");
+            await ShowMessageAsync("Not a TIFF or PDF file", "Please choose a .tif, .tiff or .pdf file.");
             return;
         }
         var script = Path.Combine(AppSettings.AppDir, ScriptName);
@@ -254,11 +292,17 @@ public sealed partial class MainWindow : Window
         var tools = AppSettings.ResolveAppPath(_settings.ToolsPath);
 
         var download = false;
-        if (!ToolsPresent(tools))
+        var needPdfTools = isFile ? IsPdf(input) : FolderHasPdfsToOcr(input);
+        var missing = MissingTools(tools, needPdfTools);
+        if (missing.Count > 0)
         {
+            // ImageMagick + Tesseract are about 500 MB; Poppler + qpdf (for PDFs) about 100 MB.
+            var size = missing.Contains("ImageMagick") || missing.Contains("Tesseract OCR") ? "about 500 MB" : "about 100 MB";
             if (!await ConfirmAsync("Missing tools",
-                    $"ImageMagick and/or Tesseract OCR were not found in:\n{tools}\n\n" +
-                    "Download the portable versions there now? (about 500 MB, no install or admin rights needed)",
+                    $"Not found in {tools}:\n{string.Join(", ", missing)}\n\n" +
+                    (needPdfTools && (missing.Contains("Poppler") || missing.Contains("qpdf"))
+                        ? "Poppler and qpdf are needed to make PDF files searchable.\n\n" : "") +
+                    $"Download the portable versions there now? ({size}, no install or admin rights needed)",
                     "Download", "Cancel"))
                 return;
             download = true;
@@ -390,10 +434,11 @@ public sealed partial class MainWindow : Window
         var failed = Count("Failed");
 
         // Button target: the processed folder, or the new PDF selected in its folder.
+        var inputIsPdf = _runIsFile && IsPdf(_runInput);
         var openPath = _runInput;
         if (_runIsFile)
         {
-            var pdf = Path.ChangeExtension(_runInput, ".pdf");
+            var pdf = inputIsPdf ? PdfOcrOutput(_runInput) : Path.ChangeExtension(_runInput, ".pdf");
             openPath = File.Exists(pdf) ? pdf : Path.GetDirectoryName(_runInput) ?? _runInput;
         }
         var name = Path.GetFileName(_runInput);
@@ -406,7 +451,7 @@ public sealed partial class MainWindow : Window
         }
         else if (_noFilesFound)
         {
-            Notifications.Show("No TIFF files found", $"No .tif or .tiff files were found in {name}.", null);
+            Notifications.Show("No files found", $"No .tif, .tiff or .pdf files were found in {name}.", null);
             return;
         }
         else if (failed > 0)
@@ -419,13 +464,17 @@ public sealed partial class MainWindow : Window
         else if (converted == 0 && skipped > 0)
         {
             title = "Nothing to convert";
-            message = _runIsFile ? $"A PDF of {name} already exists." : $"All {skipped} file(s) already have PDFs.";
+            message = !_runIsFile ? $"All {skipped} file(s) were skipped. See the output in {AppTitle} for details."
+                    : inputIsPdf ? $"{name} already has searchable text, or a searchable copy of it already exists."
+                    : $"A PDF of {name} already exists.";
         }
         else
         {
             title = "Conversion complete";
-            message = _runIsFile ? $"{name} has been converted." : $"All {converted} file(s) have been converted.";
-            if (skipped > 0) message += $" {skipped} skipped (PDF already existed).";
+            message = !_runIsFile ? $"All {converted} file(s) have been converted."
+                    : inputIsPdf ? $"{name} is now searchable, saved as {Path.GetFileName(PdfOcrOutput(_runInput))}."
+                    : $"{name} has been converted.";
+            if (skipped > 0) message += $" {skipped} skipped (already converted or already searchable).";
             if (ocrFailed > 0) message += $" {ocrFailed} without searchable text (OCR failed).";
         }
         Notifications.Show(title, message, openPath);
@@ -480,7 +529,7 @@ public sealed partial class MainWindow : Window
                 // The script's summary: "<status>   <count>" lines after "===== Summary".
                 if (_inSummary && SummaryRx.Match(text) is { Success: true } s)
                     _statusCounts[s.Groups[1].Value] = int.Parse(s.Groups[2].Value);
-                else if (text.StartsWith("No .tif or .tiff files found", StringComparison.Ordinal))
+                else if (text.StartsWith("No TIFF or PDF files found", StringComparison.Ordinal))
                     _noFilesFound = true;
             }
 
@@ -520,7 +569,7 @@ public sealed partial class MainWindow : Window
             else if (!_converting)
             {
                 // Phases before conversion starts.
-                var phase = text.StartsWith("Searching '", StringComparison.Ordinal) ? "Searching for TIFF files…"
+                var phase = text.StartsWith("Searching '", StringComparison.Ordinal) ? "Searching for TIFF and PDF files…"
                           : text.StartsWith("Missing tool", StringComparison.Ordinal) ? "Downloading tools…"
                           : text.StartsWith("Tesseract language data missing", StringComparison.Ordinal) ? "Downloading OCR language data…"
                           : text.StartsWith("Found ", StringComparison.Ordinal) ? "Checking for existing PDFs…"
@@ -585,7 +634,7 @@ public sealed partial class MainWindow : Window
         if (t.StartsWith("Skipped", StringComparison.Ordinal)) return LineKind.Secondary;
         if (t.StartsWith("Warning", StringComparison.Ordinal) || t.StartsWith("Rotated", StringComparison.Ordinal) ||
             t.Contains("OCR failed", StringComparison.Ordinal) || t.StartsWith("Missing", StringComparison.Ordinal) ||
-            t.StartsWith("No .tif", StringComparison.Ordinal))
+            t.StartsWith("No TIFF or PDF", StringComparison.Ordinal))
             return LineKind.Warning;
         if (t.StartsWith('[') || t.StartsWith("=====", StringComparison.Ordinal) ||
             t.StartsWith("Converting", StringComparison.Ordinal)) return LineKind.Header;

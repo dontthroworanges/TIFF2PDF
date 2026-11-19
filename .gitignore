@@ -1,0 +1,12 @@
+# Built app - published as a GitHub Release asset by .github/workflows/ci-cd.yml.
+# Source/Publish.ps1 still copies a local build here, next to the script.
+/TIFF2PDF.exe
+
+# Build output (normally redirected to %LOCALAPPDATA%\TiffToPdfBuild by Source/Directory.Build.props)
+bin/
+obj/
+*.user
+.vs/
+
+# Archives the script downloads while fetching missing tools
+/Tools/_downloads/
