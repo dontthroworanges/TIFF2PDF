@@ -1,4 +1,4 @@
-##TIFF2PDF
+## TIFF2PDF
 > [!IMPORTANT]
 > **Disclaimer:** This application was built with AI-generated code. If you prefer not to use AI-generated software, please do not proceed. 
 
